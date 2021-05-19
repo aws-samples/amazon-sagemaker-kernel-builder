@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  End to end solution for deploying a SageMaker Studio environment and creating and integrating a custom
+  kernel environment.
+  Author: Dylan Tong, AWS
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Installation Resources
+        Parameters:
+          - pSolutionRepository
+      - Label: 
+          default: Workspace Configurations
+        Parameters:
+          - pWorkspaceBaseName
+      - Label:
+          default: Amazon SageMaker Studio Configurations
+        Parameters:
+          - pDomainId
+          - pSageMakerServiceRole
+      - Label:
+          default: AWS CodeBuild Configurations
+        Parameters:
+          - pProjectName
+          - pImageType
+      - Label:
+          default: Container Configurations
+        Parameters:
+          - pRepoName
+          - pKernelImageName
+    ParameterLabels:
+      pSolutionRepository:
+        default: Installation Repository
+      pWorkspaceBaseName:
+        default: Workspace (S3 Bucket Name)
+      pDomainId:
+        default: "[Required] Amazon SageMaker Studio (Domain) Id"
+      pSageMakerServiceRole:
+        default: "[Optional] Kernel Security Context (IAM Role Name)"
+      pProjectName:
+        default: "[Required] AWS CodeBuild Project Name"
+      pImageType:
+        default: "[Required]AWS CodeBuild Managed Ubuntu Image"
+      pRepoName:
+        default: "[Required] Container Repository Name"
+      pKernelImageName:
+        default: "[Required] Kernel Image Name"
+Parameters:
+  pSolutionRepository:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description:  >- 
+      Name the S3 bucket hosting the assets required by this solution. The default value should be used
+      unless instructed otherwise by the solution provider.
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+    Default: dtong-public-fileshare
+  pWorkspaceBaseName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Must be unique. Provide a base name of the default S3 bucket that will be used to host
+      assets required by this solution.
+    MaxLength: 63
+    MinLength: 1    
+    Type: String
+    Default: kernel-builder-workspace
+  pDomainId:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: The Studio (Domain) Id of your existing Amazon SageMaker Studio environment.
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+  pSageMakerServiceRole:
+    Description: >- 
+      Optionally, provide an IAM Role ARN to serve as the security context for your Amazon SageMaker
+      Studio environment. If you don't provide a value, a role will be created for you.
+    Type: String
+    Default: "-"
+  pProjectName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: Name your AWS Codebuild project
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+    Default: sagemaker-studio-kernel-builder
+  pImageType:
+    AllowedValues: 
+     - "aws/codebuild/standard:3.0"
+     - "aws/codebuild/standard:4.0"
+     - "aws/codebuild/standard:5.0"
+    Default: "aws/codebuild/standard:5.0"
+    Description: AWS Codebuild managed images for Ubuntu.
+    Type: String
+  pRepoName:
+    AllowedPattern: '[A-Za-z0-9-]{2,256}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Provide a name for the ECR repository that this solution will provision and use to store your
+      custom kernel images.
+    MaxLength: 256
+    MinLength: 2    
+    Type: String
+    Default: sagemaker-snowflake
+  pKernelImageName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Provide a name for the image that this solution will build, store and publish into your 
+      Amazon SageMaker Studio environment.
+    MaxLength: 63
+    MinLength: 1    
+    Type: String
+    Default: snowflake
+Resources:
+  BaseStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/kernel-builder-base.yml"
+      Parameters:
+        pSolutionRepository: !Ref pSolutionRepository
+        pWorkspaceBaseName: !Ref pWorkspaceBaseName
+  ImageBuilderStack:
+    DependsOn: 
+      - BaseStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/build-sagemaker-kernel.yml"
+      Parameters:
+        pProjectName: !Ref pProjectName
+        pImageType: !Ref pImageType
+        pRepoName: !Ref pRepoName
+        pKernelImageName: !Ref pKernelImageName
+        pDefaultWorkspace: !GetAtt
+          - BaseStack
+          - Outputs.Workspace
+  KernelPublisherStack:
+    DependsOn:
+      - ImageBuilderStack
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/publish-sagemaker-kernel.yml"
+      Parameters:
+        pRepoName: !Ref pRepoName
+        pKernelImageName: !Ref pKernelImageName
+        pDomainId: !Ref pDomainId
+        pSageMakerServiceRole: !Ref pSageMakerServiceRole
+        pDefaultWorkspace: !GetAtt      
+          - BaseStack
+          - Outputs.Workspace

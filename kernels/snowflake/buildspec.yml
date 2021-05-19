@@ -1,0 +1,17 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2 &
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+      - export BASE_URI=$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME 
+      - export ECR_URI=$BASE_URI:$IMAGE_NAME;
+  pre_build:
+    commands:
+      - aws --region $REGION ecr get-login-password | docker login --username AWS --password-stdin $BASE_URI
+  build:
+    commands:
+      - docker build . -t $IMAGE_NAME -t $ECR_URI
+  post_build:
+    commands: 
+      - docker push $ECR_URI

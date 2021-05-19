@@ -1,0 +1,276 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudFormation template for building and deploying a SageMaker Studio custom kernel
+  Author: Dylan Tong, AWS
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Workspace Configurations
+        Parameters:
+          - pDefaultWorkspace
+      - Label:
+          default: Container Configurations
+        Parameters:
+          - pRepoName
+          - pKernelImageName
+      - Label:
+          default: SageMaker Studio Configurations
+        Parameters:
+          - pDomainId
+          - pSageMakerServiceRole
+    ParameterLabels:
+      pRepoName:
+        default: "[Required] Container Repository Name"
+      pKernelImageName:
+        default: "[Required] Kernel Image Name"
+      pDomainId:
+        default: "[Required] Amazon SageMaker Studio Id"
+      pSageMakerServiceRole:
+        default: "[Optional] Kernel Security Context (IAM Role Name)"
+      pDefaultWorkspace:
+        default: "[Required] Solution Workspace (S3 Bucket Name)"
+Parameters:
+  pDefaultWorkspace:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: S3 bucket name used as the solution's workspace. Do not modify if you want to use the default.
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+    Default: "-"
+  pRepoName:
+    AllowedPattern: '[A-Za-z0-9-]{2,256}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Base name of the default S3 bucket used to host assets used by the kernel build process
+    MaxLength: 256
+    MinLength: 2    
+    Type: String
+    Default: sagemaker-snowflake
+  pKernelImageName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      The name of a custom SageMaker Studio kernel image stored in ECR.
+    MaxLength: 63
+    MinLength: 1    
+    Type: String
+    Default: snowflake
+  pDomainId:
+    Description: >-
+      The Id of the active Amazon SageMaker Studio instance in your region. This Id can be obtained from the AWS console.
+    Type: String
+    Default: "-"
+  pSageMakerServiceRole:
+    Description: >- 
+      Optionally, provide an IAM Role ARN so that Amazon SageMaker scan create image resources and update the Studio Domain.
+      If you don't provide a value, a role will be created for you.
+    Type: String
+    Default: "-"
+Conditions:
+  UseDefaultWorkspace: !Equals
+    - !Ref pDefaultWorkspace
+    - "-"
+  CreateSageMakerRole: !Equals
+    - !Ref pSageMakerServiceRole
+    - "-"
+Resources:
+  KernelPublishFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Join
+          - '-'
+          - - kb-publish-stage-
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId
+      Role: !GetAtt WorkflowExectuionRole.Arn
+      Handler: publish.lambda_handler
+      Timeout: 900
+      MemorySize: 128
+      Runtime: python3.8
+      Code:      
+        S3Bucket: !If
+          - UseDefaultWorkspace
+          - !Sub kernel-builder-workspace-${AWS::Region}-${AWS::AccountId}
+          - !Ref pDefaultWorkspace
+        S3Key: 'kernel-builder/src/workflow/publish.py.zip'
+  KernelPublishWorkflow:
+    DependsOn: 
+      - KernelPublishFunction
+    Type: Custom::KernelPublishFunction
+    Properties:
+      ServiceToken: !GetAtt KernelPublishFunction.Arn
+      config: !Sub
+          - "{\"ecr_repo_name\":\"${RepoName}\",\"image_name\":\"${ImageName}\",\"image_permissions\":\"${RoleArn}\",\"app_image_config\":{\"AppImageConfigName\":\"${ImageName}-config\",\"KernelGatewayImageConfig\":{\"KernelSpecs\":[{\"Name\":\"python3\",\"DisplayName\":\"Python 3\"}]}},\"update_domain_input\":{\"DomainId\":\"${StudioId}\",\"DefaultUserSettings\":{\"KernelGatewayAppSettings\":{\"CustomImages\":[{\"ImageName\":\"${ImageName}\",\"AppImageConfigName\":\"${ImageName}-config\"}]}}}}"
+          - ImageName: !Ref pKernelImageName  
+            RepoName: !Ref pRepoName
+            StudioId: !Ref pDomainId
+            RoleArn: !If
+              - CreateSageMakerRole
+              - !GetAtt SageMakerServiceRole.Arn
+              - !Sub 
+                - arn:aws:iam::${AWS::AccountId}:role/${ExecutionRole}
+                - ExecutionRole: !Ref pSageMakerServiceRole
+  SageMakerServiceRole:
+    Type: AWS::IAM::Role
+    Condition: CreateSageMakerRole
+    Properties:
+      RoleName: !Join
+          - '-'
+          - - kb-sm-exec-
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess'
+      Policies:
+        - PolicyName: !Join
+          - '-'
+          - - kb-sm-exec-inline-
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId        
+          PolicyDocument: |-
+              {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                      {
+                          "Effect": "Allow",
+                          "Action": "iam:GetRole",
+                          "Resource": "*"
+                      },
+                      {
+                          "Effect": "Allow",
+                          "Action": [
+                              "s3:PutObject",
+                              "s3:GetObject",
+                              "s3:ListBucket",
+                              "s3:DeleteObject"
+                          ],
+                          "Resource": "arn:aws:s3:::*"
+                      }
+                  ]
+              }
+  WorkflowExectuionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+          - '-'
+          - - kb-publish-
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: !Join
+          - '-'
+          - - kb-pub-policy-inline
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId
+          PolicyDocument: !Sub |-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "sagemaker:DeleteTags",
+                            "sagemaker:DeleteApp",
+                            "sagemaker:UpdateUserProfile",
+                            "sagemaker:DescribeAppImageConfig",
+                            "sagemaker:DescribeApp",
+                            "sagemaker:CreateImageVersion",
+                            "sagemaker:CreateAppImageConfig",
+                            "sagemaker:CreateImage",
+                            "sagemaker:DeleteImage",
+                            "sagemaker:DescribeImage",
+                            "sagemaker:UpdateAppImageConfig",
+                            "sagemaker:DescribeDomain",
+                            "sagemaker:DescribeImageVersion",
+                            "sagemaker:UpdateImage",
+                            "sagemaker:UpdateDomain",
+                            "sagemaker:AddTags",
+                            "sagemaker:DeleteImageVersion",
+                            "sagemaker:DeleteAppImageConfig",
+                            "sagemaker:CreateApp"
+                        ],
+                        "Resource": [
+                            "arn:aws:sagemaker:*:${AWS::AccountId}:app-image-config/*",
+                            "arn:aws:sagemaker:*:${AWS::AccountId}:app/*/*/*/*",
+                            "arn:aws:sagemaker:*:${AWS::AccountId}:image/*",
+                            "arn:aws:sagemaker:*:${AWS::AccountId}:domain/*",
+                            "arn:aws:sagemaker:*:${AWS::AccountId}:image-version/*/*",
+                            "arn:aws:sagemaker:*:${AWS::AccountId}:user-profile/*/*"
+                        ]
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:PassRole",
+                            "sagemaker:ListDomains",
+                            "sagemaker:ListUserProfiles"
+                        ],
+                        "Resource": "*"
+                    }
+                ]
+              }

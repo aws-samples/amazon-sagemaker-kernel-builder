@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudFormation template for building and deploying a SageMaker Studio custom kernel
+  Author: Dylan Tong, AWS
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Installation Resources
+        Parameters:
+          - pSolutionRepository
+    ParameterLabels:
+      pSolutionRepository:
+        default: Installation Repository
+Parameters:
+  pSolutionRepository:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description:  >- 
+      Name the S3 bucket hosting the assets required by this solution. The default value should be used
+      unless instructed otherwise by the solution provider.
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+    Default: dtong-public-fileshare
+  pWorkspaceBaseName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Must be unique. Provide a base name of the default S3 bucket that will be used to host
+      assets required by this solution.
+    MaxLength: 63
+    MinLength: 1    
+    Type: String
+    Default: kernel-builder-workspace
+Resources:
+  DefaultWorkspace:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 
+        - ${Workspace}-${AWS::Region}-${AWS::AccountId}
+        - Workspace: !Ref pWorkspaceBaseName
+  SolutionProvisionerRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Join
+          - '-'
+          - - kb-provisioner-role-
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+  S3SyncFunction:
+    DependsOn:
+      - SolutionProvisionerRole
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Join
+          - '-'
+          - - s3-sync-util-
+            - !Select
+                - 4
+                - !Split
+                    - '-'
+                    - !Select
+                        - 2
+                        - !Split
+                            - /
+                            - !Ref AWS::StackId
+      Role: !GetAtt SolutionProvisionerRole.Arn
+      Handler: index.lambda_handler
+      Timeout: 900
+      MemorySize: 128
+      Runtime: python3.8
+      Code:
+        ZipFile : |
+          from time import time
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.client('s3')                                
+          def lambda_handler(event, context):
+            try:  
+              properties = event['ResourceProperties']
+              repo = properties['Repository']
+              prefix = properties['Prefix']
+              dst = properties['Destination']
+              
+              kwargs = {'Bucket': repo, 'Prefix': prefix, 'MaxKeys': 100}
+              contents = s3.list_objects_v2(**kwargs)['Contents']
+              
+              # I removed Etag md5 hash checks. They are unreliable for large files. You will need to implement
+              # a custom file integrity checking for hardened production code.
+              start = time()
+              for meta in contents:  
+                key = meta['Key']
+                obj = s3.get_object(Bucket=repo, Key=key)['Body'] 
+                s3.put_object(Body= obj.read(), Bucket=dst, Key=key)
+                  
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Response":f"Sync took {time()-start} secs."})          
+            except Exception as e:
+              cfnresponse.send(event, context, cfnresponse.FAILED, {"Response":f"{type(e)} {e}"})
+  S3Copy:
+    DependsOn: 
+      - DefaultWorkspace
+      - S3SyncFunction
+    Type: Custom::S3SyncFunction
+    Properties:
+      ServiceToken: !GetAtt S3SyncFunction.Arn
+      Repository: !Ref pSolutionRepository
+      Prefix: "kernel-builder"
+      Destination: !Ref DefaultWorkspace
+Outputs:
+  Workspace: 
+    Value: !Ref DefaultWorkspace

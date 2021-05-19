@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudFormation template for building and deploying a SageMaker Studio custom kernel
+  Author: Dylan Tong, AWS
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Workspace Configurations
+        Parameters:
+          - pDefaultWorkspace
+      - Label:
+          default: AWS CodeBuild Configurations
+        Parameters:
+          - pProjectName
+          - pImageType
+      - Label:
+          default: Container Configurations
+        Parameters:
+          - pRepoName
+          - pKernelImageName
+    ParameterLabels:
+      pProjectName:
+        default: AWS CodeBuild Project Name
+      pImageType:
+        default: AWS CodeBuild Managed Ubuntu Image
+      pSubnets:
+        default: Subnet Groups
+      pSecurityGroupIds:
+        default: Security Groups
+      pRepoName:
+        default: Container Repository Name
+      pKernelImageName:
+        default: Kernel Image Name
+      pDefaultWorkspace:
+        default: Solution Workspace (S3 Bucket Name)
+Parameters:
+  pDefaultWorkspace:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: S3 bucket name used as the solution's workspace. Do not modify if you want to use the default.
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+    Default: "-"
+  pProjectName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: Name your AWS Codebuild project
+    MaxLength: 63
+    MinLength: 1
+    Type: String
+    Default: sagemaker-studio-kernel-builder
+  pImageType:
+    AllowedValues: 
+     - "aws/codebuild/standard:3.0"
+     - "aws/codebuild/standard:4.0"
+     - "aws/codebuild/standard:5.0"
+    Default: "aws/codebuild/standard:5.0"
+    Description: AWS Codebuild managed images for Ubuntu.
+    Type: String
+  pRepoName:
+    AllowedPattern: '[A-Za-z0-9-]{2,256}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Base name of the default S3 bucket used to host assets used by the kernel build process
+    MaxLength: 256
+    MinLength: 2    
+    Type: String
+    Default: sagemaker-snowflake
+  pKernelImageName:
+    AllowedPattern: '[A-Za-z0-9-]{1,63}'
+    ConstraintDescription: >-
+      Maximum of 63 alphanumeric characters. Can include hyphens (-), but not
+      spaces. Must be unique within your account in an AWS Region.
+    Description: >-
+      Base name of the default S3 bucket used to host assets used by the kernel build process
+    MaxLength: 63
+    MinLength: 1    
+    Type: String
+    Default: snowflake
+  pDomainId:
+    Description: >-
+      The Id of the active Amazon SageMaker Studio instance in your region. This Id can be obtained from the AWS console.
+    Type: String
+    Default: d-3vnyoyzhtg1h
+Conditions:
+  UseDefaultWorkspace: !Equals
+    - !Ref pDefaultWorkspace
+    - "-"
+Resources:
+  CodeBuildServiceRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'kernel-builder-role-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess'
+      Policies:
+        - PolicyName: !Sub 'kernel-builder-policy-inline-${AWS::Region}'
+          PolicyDocument: !Sub
+            - |-
+              {
+                "Version":"2012-10-17",
+                "Statement":[
+                    {
+                      "Effect":"Allow",
+                      "Resource":[
+                          "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${Project}*"
+                      ],
+                      "Action":[
+                          "logs:CreateLogGroup",
+                          "logs:CreateLogStream",
+                          "logs:PutLogEvents"
+                      ]
+                    },
+                    {
+                      "Effect":"Allow",
+                      "Action":[
+                          "codebuild:CreateReportGroup",
+                          "codebuild:CreateReport",
+                          "codebuild:UpdateReport",
+                          "codebuild:BatchPutTestCases",
+                          "codebuild:BatchPutCodeCoverages"
+                      ],
+                      "Resource":[
+                          "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/${Project}-*"
+                      ]
+                    },
+                    {
+                      "Effect":"Allow",
+                      "Action":[
+                          "s3:GetObject",
+                          "s3:GetObjectVersion"
+                      ],
+                      "Resource":[
+                          "arn:aws:s3:::${Workspace}/kernel-builder",
+                          "arn:aws:s3:::${Workspace}/kernel-builder/*"
+                      ]
+                    },
+                    {
+                      "Effect":"Allow",
+                      "Resource":[
+                          "arn:aws:s3:::${Workspace}"
+                      ],
+                      "Action":[
+                          "s3:ListBucket",
+                          "s3:GetBucketAcl",
+                          "s3:GetBucketLocation"
+                      ]
+                    }
+                ]
+              }
+            - Project: !Ref pProjectName
+              Workspace: !If
+                - UseDefaultWorkspace
+                - !Sub kernel-builder-workspace-${AWS::Region}-${AWS::AccountId}
+                - !Ref pDefaultWorkspace
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref pProjectName
+      Description: This project is used for building Amazon Sagemaker custom kernels
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref pImageType
+        PrivilegedMode: True
+        EnvironmentVariables:
+          - Name: ACCOUNT
+            Type: PLAINTEXT
+            Value: !Ref AWS::AccountId
+          - Name: REGION
+            Type: PLAINTEXT
+            Value: !Ref AWS::Region
+      Source:
+        Location: !Sub 
+          - ${Workspace}/kernel-builder/docker/
+          - Workspace: !If
+              - UseDefaultWorkspace
+              - !Sub kernel-builder-workspace-${AWS::Region}-${AWS::AccountId}
+              - !Ref pDefaultWorkspace
+        Type: S3
+      TimeoutInMinutes: 30
+  KernelsRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Ref pRepoName
+  WorkflowExectuionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'kernel-builder-build-${AWS::Region}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: !Sub 'kb-build-policy-inline-${AWS::Region}'
+          PolicyDocument: !Sub
+            - |-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "codebuild:StartBuild",
+                            "codebuild:StopBuild",
+                            "codebuild:RetryBuild",
+                            "codebuild:BatchGetBuilds"
+                        ],
+                        "Resource": [
+                            "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${Project}"
+                        ]
+                    }
+                ]
+              }
+            - Project: !Ref pProjectName
+  KernelBuildFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: kernel-builder-build-stage
+      Role: !GetAtt WorkflowExectuionRole.Arn
+      Handler: build.lambda_handler
+      Timeout: 900
+      MemorySize: 128
+      Runtime: python3.8
+      Code:      
+        S3Bucket: !If
+                    - UseDefaultWorkspace
+                    - !Sub kernel-builder-workspace-${AWS::Region}-${AWS::AccountId}
+                    - !Ref pDefaultWorkspace
+        S3Key: 'kernel-builder/src/workflow/build.py.zip'
+  KernelBuildWorkflow:
+    DependsOn: 
+      - KernelsRepository
+      - CodeBuildProject
+      - KernelBuildFunction
+    Type: Custom::KernelBuildFunction
+    Properties:
+      ServiceToken: !GetAtt KernelBuildFunction.Arn
+      config: !Sub
+          - "{\"cb_project\":\"${ProjectName}\",\"env_overrides\":{\"REPO_NAME\":\"${RepoName}\",\"IMAGE_NAME\":\"${ImageName}\"}}"
+          - ProjectName: !Ref pProjectName
+            RepoName: !Ref pRepoName
+            ImageName: !Ref pKernelImageName
+Outputs:
+  ContainerRepositoryName:
+    Value: !Ref pRepoName
