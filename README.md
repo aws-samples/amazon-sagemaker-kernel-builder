@@ -11,12 +11,12 @@ The solution architecture for the full deployment option is as follows:
 
 ### Deployment Options:
 
-1. Full Deployment
+1. **Full Deployment**
 
-   This option does not require pre-existing resources, and it is ideal for new accounts and production environments that use CloudFormation to manage all your AWS resources. 
+   | Description | Launch Template |
+   |-------------|-----------------|
+   |This deployment option provides end-to-end automation. It will provision the solution and build, publish and integrate your environment as defined by your DockerFile and AWS CodeBuild spec into a new Amazon SageMaker Studio environment. This option  is ideal for new accounts and production environments that use CloudFormation to manage all your AWS resources. | <a href="https://console.aws.amazon.com/cloudformation/home?region=region#/stacks/new?stackName=kernel-builder&templateURL=https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/kernel-builder-full.yml">![Full-Option](/images/deploy-to-aws.png)</a> |
 
-<a href="https://console.aws.amazon.com/cloudformation/home?region=region#/stacks/new?stackName=kernel-builder&templateURL=https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/kernel-builder-full.yml">![Full-Option](/images/deploy-to-aws.png)
-</a>
 
 
 
