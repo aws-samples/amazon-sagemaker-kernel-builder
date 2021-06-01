@@ -9,7 +9,7 @@ The solution architecture for the full deployment option is as follows:
 
 ## Deployment Options
 
-The launch buttons will launch a sample solution. Follow the [integrator's guide](integrators_guide.pdf) to learn how to tailor the solution to your needs.
+The launch buttons will deploy a sample solution. Follow the [integrator's guide](integrators_guide.pdf) to learn how to tailor the solution to your needs.
 
 | Option | Description | Launch Template |
 |--------|-------------|-----------------|
@@ -22,7 +22,7 @@ The launch buttons will launch a sample solution. Follow the [integrator's guide
 
 | Partner | Description | Launch Template |
 |--------|-------------|-----------------|
-| **Snowflake Full** | This one-click launch will deploy the end-to-end solution and create a Snowflake kernel within an Amazon SageMaker Studio environment. This kernel includes the [Snowflake Python Connetor](https://docs.snowflake.com/en/user-guide/python-connector.html) and the [Amazon SageMaker SDK](https://sagemaker.readthedocs.io/en/stable/). As a result, it also includes a Python 3.7 and all the common Python data science libraries pre-installed. | <a href="https://console.aws.amazon.com/cloudformation/home?region=region#/stacks/new?stackName=kernel-builder&templateURL=https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/kernel-builder-full.yml">![Full-Option](/images/deploy-to-aws.png)</a> | 
+| **Snowflake Full** | This one-click launch will deploy the end-to-end solution and create a Snowflake kernel within an Amazon SageMaker Studio environment. This kernel includes the [Snowflake Python Connetor](https://docs.snowflake.com/en/user-guide/python-connector.html) and the [Amazon SageMaker SDK](https://sagemaker.readthedocs.io/en/stable/). As a result, it also includes Python 3.7 and the common Python data science libraries pre-installed. | <a href="https://console.aws.amazon.com/cloudformation/home?region=region#/stacks/new?stackName=kernel-builder&templateURL=https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/kernel-builder-full.yml">![Full-Option](/images/deploy-to-aws.png)</a> | 
 | **Snowflake Plus** | This one-click launch will deploy the "Build and Publish" solution. It is the same as the "Snowflake Full" deployment option except it integrates with an existing Amazon SageMaker Studio environment. | <a href="https://console.aws.amazon.com/cloudformation/home?region=region#/stacks/new?stackName=kernel-builder&templateURL=https://dtong-public-fileshare.s3-us-west-2.amazonaws.com/kernel-builder/src/deploy/cf/kernel-builder-full.yml">![Full-Option](/images/deploy-to-aws.png)</a> |
 
 
