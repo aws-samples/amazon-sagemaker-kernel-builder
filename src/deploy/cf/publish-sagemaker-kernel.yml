@@ -115,7 +115,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt KernelPublishFunction.Arn
       config: !Sub
-          - "{\"ecr_repo_name\":\"${RepoName}\",\"image_name\":\"${ImageName}\",\"image_permissions\":\"${RoleArn}\",\"app_image_config\":{\"AppImageConfigName\":\"${ImageName}-config\",\"KernelGatewayImageConfig\":{\"KernelSpecs\":[{\"Name\":\"python3\",\"DisplayName\":\"Python 3\"}]}},\"update_domain_input\":{\"DomainId\":\"${StudioId}\",\"DefaultUserSettings\":{\"KernelGatewayAppSettings\":{\"CustomImages\":[{\"ImageName\":\"${ImageName}\",\"AppImageConfigName\":\"${ImageName}-config\"}]}}}}"
+          - "{\"ecr_repo_name\":\"${RepoName}\",\"image_name\":\"${ImageName}\",\"image_permissions\":\"${RoleArn}\",\"app_image_config\":{\"AppImageConfigName\":\"${ImageName}-config\",\"KernelGatewayImageConfig\":{\"FileSystemConfig\":{\"DefaultGid\":0,\"DefaultUid\":0,\"MountPath\": \"/home/sagemaker-user\"},\"KernelSpecs\":[{\"Name\":\"python3\",\"DisplayName\":\"Python 3\"}]}},\"update_domain_input\":{\"DomainId\":\"${StudioId}\",\"DefaultUserSettings\":{\"KernelGatewayAppSettings\":{\"CustomImages\":[{\"ImageName\":\"${ImageName}\",\"AppImageConfigName\":\"${ImageName}-config\"}]}}}}"
           - ImageName: !Ref pKernelImageName  
             RepoName: !Ref pRepoName
             StudioId: !Ref pDomainId
