@@ -94,6 +94,7 @@ Resources:
       Path: /
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess'
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
       Policies:
         - PolicyName: !Sub 'kb-sm-exec-inline-${AWS::Region}'
           PolicyDocument: |-
