@@ -120,3 +120,8 @@ Resources:
         pDefaultWorkspace: !GetAtt      
           - BaseStack
           - Outputs.Workspace
+Outputs:
+  Workspace: 
+    Value: !GetAtt      
+      - BaseStack
+      - Outputs.Workspace
